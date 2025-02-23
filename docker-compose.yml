@@ -1,0 +1,34 @@
+#services:
+#  order-service:
+#    build: .
+#    ports:
+#      - "8080:8080"
+#    depends_on:
+#      - mongodb
+#      - redis
+#    environment:
+#      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/orderdb
+#      - SPRING_REDIS_HOST=redis
+#
+#  mongodb:
+#    image: mongo:7.0
+#    ports:
+#      - "27017:27017"
+#
+#  redis:
+#    image: redis
+#    ports:
+#      - "6379:6379"
+
+services:
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"  # Mapeia a porta 27017 do container para o host
+
+  redis:
+    image: redis
+    ports:
+      - "6379:6379"  # Mapeia a porta 6379 do container para o host
+
+
