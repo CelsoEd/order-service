@@ -25,6 +25,5 @@ As principais dependências do projeto, listadas no `pom.xml`, incluem:
 - **Spring Boot Starter Security** (3.4.3): Para autenticação e autorização com Spring Security.
 - **JJWT** (0.11.5): Para gerar e validar JWTs.
 - **Lombok** (1.18.36): Para reduzir boilerplate com anotações como `@Data` e `@Builder`.
-- **Testcontainers** (1.19.7): Para testes de integração com MongoDB em memória.
 - **JUnit 5** (5.11.4): Para testes unitários e de integração.
 - **Mockito** (5.12.0): Para mocks em testes unitários.
