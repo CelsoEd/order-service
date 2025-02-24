@@ -17,9 +17,8 @@ public class RedisConfig {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
 
-        // Configurar o ObjectMapper com suporte explícito a Java 8 Date/Time
         ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule()); // Adiciona suporte a LocalDateTime
+        objectMapper.registerModule(new JavaTimeModule());
         objectMapper.activateDefaultTyping(objectMapper.getPolymorphicTypeValidator(), ObjectMapper.DefaultTyping.NON_FINAL); // Preserva tipos genéricos
 
         // Serializador para chaves (String)

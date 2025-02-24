@@ -1,13 +1,17 @@
 package com.example.order.service;
 
+import com.example.order.exception.MensagemErrorException;
 import com.example.order.model.ProdutoComprado;
 import com.example.order.service.dto.PedidoResponse;
 import com.example.order.model.Pedido;
-import com.example.order.model.PedidoRepository;
+import com.example.order.repository.PedidoRepository;
 import com.example.order.model.Produto;
 import com.example.order.feignclient.ExternalAClient;
 import com.example.order.controller.ProdutoItem;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,7 +57,15 @@ public class PedidoService {
     }
 
     @Transactional
-    public PedidoResponse createBatchPedido(String idUsuario, List<ProdutoItem> products) {
+    public PedidoResponse createBatchPedido(List<ProdutoItem> products) {
+
+        if (products == null || products.isEmpty()) {
+            throw new MensagemErrorException(HttpStatus.BAD_REQUEST, "Nenhum produto foi informado");
+        }
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String idUsuario = authentication.getName();
+
         BigDecimal valorTotal = BigDecimal.ZERO;
         Pedido pedido = new Pedido(idUsuario);
         pedido.setStatus("PENDENTE PAGAMENTO");
@@ -62,10 +74,10 @@ public class PedidoService {
             String idProduto = item.getId();
             Integer quantidadeSolicitada = item.getQuantidade();
 
-            //verifica se a quantidade solicitada é maior que a disponível
             boolean isDisponivel = externalAClient.getQuantidadeProduto(idProduto) > quantidadeSolicitada;
             if (!isDisponivel) {
-                throw new IllegalStateException("Produto " + idProduto + " não está disponível");
+                throw new MensagemErrorException(HttpStatus.BAD_REQUEST,
+                        "Produto " + idProduto + " não está disponível");
             }
 
             // Busca o produto no cache ou no External A
@@ -96,16 +108,19 @@ public class PedidoService {
 
     private PedidoResponse mapToResponse(Pedido pedido) {
         return PedidoResponse.builder()
-                .idUsuario(pedido.getIdUsuario())
+                .codigoPedido(pedido.getId())
+                .usuario(pedido.getIdUsuario())
                 .produtosComprado(pedido.getProdutosComprado())
-                .totalValue(pedido.getValorTotal())
-                .status(pedido.getStatus())
+                .valorTotal(pedido.getValorTotal())
+                .situacao(pedido.getStatus())
                 .horarioPedido(pedido.getHorarioCriacao().format(BR_FORMATTER))
                 .build();
     }
 
-    // Novo método: Listar todos os pedidos de um usuário
-    public List<PedidoResponse> listarPedidosPorUsuario(String idUsuario) {
+    public List<PedidoResponse> listarPedidosPorUsuario() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String idUsuario = authentication.getName();
+
         String cacheKey = "pedidos:" + idUsuario;
         @SuppressWarnings("unchecked")
         List<Pedido> cachedPedidos = (List<Pedido>) redisCacheService.getCachedOrder(cacheKey, List.class);
@@ -121,7 +136,6 @@ public class PedidoService {
             return List.of();
         }
 
-        // Cacheia os pedidos com um TTL de 24 horas
         redisCacheService.cacheOrder(cacheKey, pedidos, 1, TimeUnit.MINUTES);
         return pedidos.stream()
                 .map(this::mapToResponse)

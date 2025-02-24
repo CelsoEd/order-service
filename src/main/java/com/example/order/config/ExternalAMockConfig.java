@@ -22,7 +22,7 @@ public class ExternalAMockConfig {
 
             @Override
             public Double getPrecoProduto(String productId) {
-                System.out.println("Mock: getProductPrice called for productId: " + productId);
+                System.out.println("Mock: getPrecoProduto called for productId: " + productId);
                 return "A123".equals(productId) ? 10.0 : "B123".equals(productId) ? 5.0 : null;
             }
 

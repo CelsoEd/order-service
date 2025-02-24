@@ -25,11 +25,12 @@ public class Pedido {
     private BigDecimal valorTotal;
     private String status;
     private LocalDateTime horarioCriacao;
+    private LocalDateTime horarioExpiracao;
     private List<ProdutoComprado> produtosComprado = new ArrayList<>();
 
     public Pedido(String idUsuario) {
         this.idUsuario = idUsuario;
-        this.status = "PENDING";
         this.horarioCriacao = LocalDateTime.now();
+        this.horarioExpiracao = horarioCriacao.plusMonths(1);
     }
 }

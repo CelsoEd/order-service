@@ -5,17 +5,15 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 @Data
 @Builder
 public class PedidoResponse {
-    private String id;
-    private String idUsuario;
+    private String codigoPedido;
+    private String usuario;
     private List<ProdutoComprado> produtosComprado;
-    private BigDecimal totalValue;
-    private String status;
+    private BigDecimal valorTotal;
+    private String situacao;
     private String horarioPedido;
 }

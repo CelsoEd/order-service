@@ -2,14 +2,15 @@ package com.example.order.controller;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.List;
 
 @Data
 @AllArgsConstructor
+@NoArgsConstructor
 public class BatchPedidoRequest {
 
-    private String idUsuario;
-    private List<ProdutoItem> products;
+    private List<ProdutoItem> produtoItems;
 
 }

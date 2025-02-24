@@ -1,36 +1,38 @@
 package com.example.order.service;
 
-import com.example.order.service.dto.PedidoResponse;
+import com.example.order.exception.MensagemErrorException;
+import com.example.order.feignclient.ExternalAClient;
 import com.example.order.model.Pedido;
-import com.example.order.model.PedidoRepository;
 import com.example.order.model.Produto;
 import com.example.order.model.ProdutoComprado;
-import com.example.order.feignclient.ExternalAClient;
+import com.example.order.repository.PedidoRepository;
+import com.example.order.service.dto.PedidoResponse;
 import com.example.order.controller.ProdutoItem;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.testcontainers.containers.MongoDBContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
-import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
-@Testcontainers
-public class PedidoServiceTest {
-
-    @Container
-    public static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:7.0")
-            .withExposedPorts(27017);
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+class PedidoServiceTest {
 
     @Mock
     private PedidoRepository pedidoRepository;
@@ -41,129 +43,179 @@ public class PedidoServiceTest {
     @Mock
     private RedisCacheService redisCacheService;
 
+    @Mock
+    private Authentication authentication;
+
+    @Mock
+    private SecurityContext securityContext;
+
     @InjectMocks
     private PedidoService pedidoService;
 
     @BeforeEach
     void setUp() {
-        MockitoAnnotations.openMocks(this);
-        System.setProperty("spring.data.mongodb.uri", mongoDBContainer.getReplicaSetUrl());
+        // Configura o SecurityContextHolder para todos os testes
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+        when(authentication.getName()).thenReturn("user123");
+        SecurityContextHolder.setContext(securityContext);
     }
 
     @Test
-    void testBuscaTodosProdutos_Success() {
-        String cacheKey = "todosProdutos";
-        Produto produto1 = Produto.builder()
-                .id("A123")
-                .nome("Café")
-                .valor(new BigDecimal("10.0"))
-                .quantidadeDisponivel(100)
-                .build();
-        Produto produto2 = Produto.builder()
-                .id("B123")
-                .nome("Água")
-                .valor(new BigDecimal("5.0"))
-                .quantidadeDisponivel(200)
-                .build();
+    void buscaTodosProdutos_deveRetornarListaDoCache_quandoCacheExistir() {
+        // Arrange
+        List<Produto> produtosCacheados = List.of(new Produto("1", "Produto1", BigDecimal.TEN, 10));
+        when(redisCacheService.getCachedOrder("todosProdutos", List.class)).thenReturn(produtosCacheados);
 
-        List<Produto> produtos = Arrays.asList(produto1, produto2);
-        when(redisCacheService.getCachedOrder(cacheKey, List.class)).thenReturn(null);
-        when(externalAClient.getTodosProdutos()).thenReturn(produtos);
-
+        // Act
         List<Produto> result = pedidoService.buscaTodosProdutos();
 
-        assertNotNull(result);
-        assertEquals(2, result.size());
-        assertTrue(result.stream().anyMatch(p -> p.getId().equals("A123") && p.getNome().equals("Café")));
-        assertTrue(result.stream().anyMatch(p -> p.getId().equals("B123") && p.getNome().equals("Água")));
-        verify(redisCacheService, times(1)).cacheOrder(cacheKey, produtos, 5, TimeUnit.MINUTES);
+        // Assert
+        assertEquals(produtosCacheados, result);
+        verify(redisCacheService).getCachedOrder("todosProdutos", List.class);
+        // Não precisamos verificar o externalAClient, pois o teste espera que ele não seja chamado
     }
 
     @Test
-    void testCreateBatchPedido_Success() {
-        String idUsuario = "USER123";
-        ProdutoItem item1 = new ProdutoItem("A123", 3);
-        ProdutoItem item2 = new ProdutoItem("B123", 2);
-        List<ProdutoItem> products = Arrays.asList(item1, item2);
+    void buscaTodosProdutos_deveRetornarListaVazia_quandoExternalRetornarNulo() {
+        // Arrange
+        when(redisCacheService.getCachedOrder("todosProdutos", List.class)).thenReturn(null);
+        when(externalAClient.getTodosProdutos()).thenReturn(null);
 
-        Produto produto1 = Produto.builder()
-                .id("A123")
-                .nome("Café")
-                .valor(new BigDecimal("10.0"))
-                .quantidadeDisponivel(100)
-                .build();
-        Produto produto2 = Produto.builder()
-                .id("B123")
-                .nome("Água")
-                .valor(new BigDecimal("5.0"))
-                .quantidadeDisponivel(200)
-                .build();
+        // Act
+        List<Produto> result = pedidoService.buscaTodosProdutos();
 
-        String cacheKey1 = "produto:A123";
-        String cacheKey2 = "produto:B123";
-        when(redisCacheService.getCachedOrder(cacheKey1, Produto.class)).thenReturn(null);
-        when(redisCacheService.getCachedOrder(cacheKey2, Produto.class)).thenReturn(null);
-        when(externalAClient.getProduto("A123")).thenReturn(produto1);
-        when(externalAClient.getProduto("B123")).thenReturn(produto2);
-        when(externalAClient.getQuantidadeProduto("A123")).thenReturn(100);
-        when(externalAClient.getQuantidadeProduto("B123")).thenReturn(200);
+        // Assert
+        assertTrue(result.isEmpty());
+        verify(redisCacheService).getCachedOrder("todosProdutos", List.class);
+        verify(externalAClient).getTodosProdutos();
+        verify(redisCacheService, never()).cacheOrder(anyString(), any(), anyLong(), any());
+    }
 
-        Pedido pedido = Pedido.builder()
-                .idUsuario("USER123")
-                .valorTotal(new BigDecimal("40.0"))
-                .status("PENDENTE PAGAMENTO")
-                .horarioCriacao(LocalDateTime.now())
-                .build();
-        pedido.getProdutosComprado().add(new ProdutoComprado("A123", 3, "Café"));
-        pedido.getProdutosComprado().add(new ProdutoComprado("B123", 2, "Água"));
+    @Test
+    void buscaTodosProdutos_deveCachearERetornarLista_quandoExternalRetornarProdutos() {
+        // Arrange
+        List<Produto> produtos = List.of(new Produto("1", "Produto1", BigDecimal.TEN, 10));
+        when(redisCacheService.getCachedOrder("todosProdutos", List.class)).thenReturn(null);
+        when(externalAClient.getTodosProdutos()).thenReturn(produtos);
 
-        when(pedidoRepository.save(any(Pedido.class))).thenReturn(pedido);
+        // Act
+        List<Produto> result = pedidoService.buscaTodosProdutos();
 
-        PedidoResponse response = pedidoService.createBatchPedido(idUsuario, products);
+        // Assert
+        assertEquals(produtos, result);
+        verify(redisCacheService).getCachedOrder("todosProdutos", List.class);
+        verify(externalAClient).getTodosProdutos();
+        verify(redisCacheService).cacheOrder("todosProdutos", produtos, 5L, java.util.concurrent.TimeUnit.MINUTES);
+    }
 
+    @Test
+    void createBatchPedido_deveCriarPedidoComSucesso_quandoProdutosDisponiveis() {
+        // Arrange
+        ProdutoItem item = new ProdutoItem("1", 2);
+        List<ProdutoItem> produtos = List.of(item);
+        Produto produto = new Produto("1", "Produto1", BigDecimal.TEN, 10);
+        Pedido pedidoSalvo = new Pedido("user123");
+        pedidoSalvo.setId("pedido123");
+        pedidoSalvo.setStatus("PENDENTE PAGAMENTO");
+        pedidoSalvo.setValorTotal(new BigDecimal("20.00"));
+        pedidoSalvo.setHorarioCriacao(LocalDateTime.now());
+        pedidoSalvo.setProdutosComprado(List.of(new ProdutoComprado("1", 2, "Produto1")));
+
+        when(externalAClient.getQuantidadeProduto("1")).thenReturn(10);
+        when(redisCacheService.getCachedOrder("produto:1", Produto.class)).thenReturn(produto);
+        when(pedidoRepository.save(any(Pedido.class))).thenReturn(pedidoSalvo);
+
+        // Act
+        PedidoResponse response = pedidoService.createBatchPedido(produtos);
+
+        // Assert
         assertNotNull(response);
-        assertEquals("USER123", response.getIdUsuario());
-        assertEquals(new BigDecimal("40.0"), response.getTotalValue());
-        assertEquals("PENDENTE PAGAMENTO", response.getStatus());
-        assertNotNull(response.getHorarioPedido()); // Verifica se a data/hora está formatada
-        verify(pedidoRepository, times(1)).save(any(Pedido.class));
-        verify(redisCacheService, times(1)).cacheOrder("USER123:batch", pedido);
-        verify(redisCacheService, times(1)).cacheOrder(cacheKey1, produto1, 5, TimeUnit.MINUTES);
-        verify(redisCacheService, times(1)).cacheOrder(cacheKey2, produto2, 5, TimeUnit.MINUTES);
+        assertEquals("pedido123", response.getCodigoPedido());
+        assertEquals("user123", response.getUsuario());
+        assertEquals(new BigDecimal("20.00"), response.getValorTotal());
+        assertEquals("PENDENTE PAGAMENTO", response.getSituacao());
+        verify(externalAClient).getQuantidadeProduto("1");
+        verify(redisCacheService).getCachedOrder("produto:1", Produto.class);
+        verify(pedidoRepository).save(any(Pedido.class));
+        verify(redisCacheService).cacheOrder("user123:batch", pedidoSalvo);
     }
 
     @Test
-    void testListarPedidosPorUsuario_Success() {
-        String idUsuario = "USER123";
-        Pedido pedido1 = Pedido.builder()
-                .idUsuario("USER123")
-                .valorTotal(new BigDecimal("40.0"))
-                .status("PENDENTE PAGAMENTO")
-                .horarioCriacao(LocalDateTime.of(2025, 2, 23, 3, 30))
-                .build();
-        pedido1.getProdutosComprado().add(new ProdutoComprado("A123", 3, "Café"));
-        pedido1.getProdutosComprado().add(new ProdutoComprado("B123", 2, "Água"));
+    void createBatchPedido_deveLancarExcecao_quandoProdutoNaoDisponivel() {
+        // Arrange
+        ProdutoItem item = new ProdutoItem("1", 5);
+        List<ProdutoItem> produtos = List.of(item);
+        when(externalAClient.getQuantidadeProduto("1")).thenReturn(3);
 
-        Pedido pedido2 = Pedido.builder()
-                .idUsuario("USER123")
-                .valorTotal(new BigDecimal("20.0"))
-                .status("PENDENTE PAGAMENTO")
-                .horarioCriacao(LocalDateTime.of(2025, 2, 23, 4, 15))
-                .build();
-        pedido2.getProdutosComprado().add(new ProdutoComprado("A123", 2, "Café"));
+        // Act & Assert
+        MensagemErrorException exception = assertThrows(MensagemErrorException.class, () -> {
+            pedidoService.createBatchPedido(produtos);
+        });
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatus());
+        assertEquals("Produto 1 não está disponível", exception.getMessage());
+        verify(externalAClient).getQuantidadeProduto("1");
+        verifyNoInteractions(pedidoRepository); // Não deve salvar nada
+    }
 
-        String cacheKey = "pedidos:" + idUsuario;
-        when(redisCacheService.getCachedOrder(cacheKey, List.class)).thenReturn(null);
-        when(pedidoRepository.findByIdUsuario(idUsuario)).thenReturn(Arrays.asList(pedido1, pedido2));
+    @Test
+    void listarPedidosPorUsuario_deveRetornarListaDoCache_quandoCacheExistir() {
+        // Arrange
+        Pedido pedido = new Pedido("user123");
+        pedido.setId("pedido123");
+        pedido.setValorTotal(BigDecimal.TEN);
+        pedido.setStatus("PENDENTE PAGAMENTO");
+        pedido.setHorarioCriacao(LocalDateTime.now());
+        List<Pedido> pedidosCacheados = List.of(pedido);
+        when(redisCacheService.getCachedOrder("pedidos:user123", List.class)).thenReturn(pedidosCacheados);
 
-        List<PedidoResponse> responses = pedidoService.listarPedidosPorUsuario(idUsuario);
+        // Act
+        List<PedidoResponse> result = pedidoService.listarPedidosPorUsuario();
 
-        assertNotNull(responses);
-        assertEquals(2, responses.size());
-        assertTrue(responses.stream().anyMatch(r -> r.getTotalValue().compareTo(new BigDecimal("40.0")) == 0));
-        assertTrue(responses.stream().anyMatch(r -> r.getTotalValue().compareTo(new BigDecimal("20.0")) == 0));
-        assertTrue(responses.stream().anyMatch(r -> r.getHorarioPedido().equals("23/02/2025 03:30:00")));
-        assertTrue(responses.stream().anyMatch(r -> r.getHorarioPedido().equals("23/02/2025 04:15:00")));
-        verify(redisCacheService, times(1)).cacheOrder(cacheKey, anyList(), 1, TimeUnit.MINUTES);
+        // Assert
+        assertFalse(result.isEmpty());
+        assertEquals(1, result.size());
+        assertEquals("pedido123", result.get(0).getCodigoPedido());
+        verify(redisCacheService).getCachedOrder("pedidos:user123", List.class);
+        verifyNoInteractions(pedidoRepository);
+    }
+
+    @Test
+    void listarPedidosPorUsuario_deveRetornarListaVazia_quandoNaoHouverPedidos() {
+        // Arrange
+        when(redisCacheService.getCachedOrder("pedidos:user123", List.class)).thenReturn(null);
+        when(pedidoRepository.findByIdUsuario("user123")).thenReturn(Collections.emptyList());
+
+        // Act
+        List<PedidoResponse> result = pedidoService.listarPedidosPorUsuario();
+
+        // Assert
+        assertTrue(result.isEmpty());
+        verify(redisCacheService).getCachedOrder("pedidos:user123", List.class);
+        verify(pedidoRepository).findByIdUsuario("user123");
+        verify(redisCacheService, never()).cacheOrder(anyString(), any(), anyLong(), any());
+    }
+
+    @Test
+    void listarPedidosPorUsuario_deveCachearERetornarLista_quandoHouverPedidos() {
+        // Arrange
+        Pedido pedido = new Pedido("user123");
+        pedido.setId("pedido123");
+        pedido.setValorTotal(BigDecimal.TEN);
+        pedido.setStatus("PENDENTE PAGAMENTO");
+        pedido.setHorarioCriacao(LocalDateTime.now());
+        List<Pedido> pedidos = List.of(pedido);
+        when(redisCacheService.getCachedOrder("pedidos:user123", List.class)).thenReturn(null);
+        when(pedidoRepository.findByIdUsuario("user123")).thenReturn(pedidos);
+
+        // Act
+        List<PedidoResponse> result = pedidoService.listarPedidosPorUsuario();
+
+        // Assert
+        assertFalse(result.isEmpty());
+        assertEquals(1, result.size());
+        assertEquals("pedido123", result.get(0).getCodigoPedido());
+        verify(redisCacheService).getCachedOrder("pedidos:user123", List.class);
+        verify(pedidoRepository).findByIdUsuario("user123");
+        verify(redisCacheService).cacheOrder("pedidos:user123", pedidos, 1L, java.util.concurrent.TimeUnit.MINUTES);
     }
 }
